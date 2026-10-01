@@ -11,10 +11,38 @@ import maplibregl from 'maplibre-gl';
 import { makeTestCity, station } from '../../tests/fixtures';
 import { id } from '../sim/types';
 import type { Mode } from '../sim/constants';
+import { REFUSAL_LABELS } from '../sim/model';
 import {
-  newGame, addLineToDraft, makeLine, closeGameYear, draftCostCents,
+  newGame, addLineToDraft, addStationToDraft, makeLine, closeGameYear, draftCostCents, refreshReserve,
 } from './game';
 import type { GameState } from './game';
+
+/** Сохранение/загрузка игры в localStorage: сериализуем Map сети и Set/Map черновика. */
+const SAVE_KEY = 'pulse-save-v1';
+
+function saveGame(s: GameState): void {
+  const replacer = (_k: string, v: unknown) =>
+    v instanceof Map ? { __m: [...v.entries()] }
+    : v instanceof Set ? { __s: [...v.values()] }
+    : v;
+  localStorage.setItem(SAVE_KEY, JSON.stringify(s, replacer));
+}
+
+function loadGame(): GameState | null {
+  const raw = localStorage.getItem(SAVE_KEY);
+  if (!raw) return null;
+  try {
+    const revived = JSON.parse(raw, (_k, v) =>
+      v && typeof v === 'object' && '__m' in v ? new Map(v.__m as [string, never][])
+      : v && typeof v === 'object' && '__s' in v ? new Set(v.__s as string[])
+      : v) as GameState;
+    // Простейшая проверка структуры — иначе стартуем новую игру.
+    if (typeof revived.year !== 'number' || !revived.city || !revived.network?.stations) return null;
+    return revived;
+  } catch {
+    return null;
+  }
+}
 
 // Метры города → градусы: 1° ≈ 111 320 м на экваторе. Город ~16 км → центр (0,0).
 const M_PER_DEG = 111_320;
@@ -24,7 +52,7 @@ const toMeters = (lon: number, lat: number): { x: number; y: number } => ({
   y: Math.round(lat * M_PER_DEG),
 });
 
-const state: GameState = newGame(makeTestCity(), false);
+const state: GameState = loadGame() ?? newGame(makeTestCity(), false);
 let tool: 'select' | 'station' | 'line' = 'select';
 let mode: Mode = 'bus';
 let pendingStationIds: ReturnType<typeof id>[] = [];
@@ -92,18 +120,28 @@ function refreshGeoJson(): void {
   const src = map.getSource('pulse') as maplibregl.GeoJSONSource | undefined;
   if (!src) return;
   const features: GeoJSON.Feature[] = [];
+  const draftStationIds = new Set(state.draft.newStations.map((s) => s.id as string));
   const allLines = [...state.network.lines, ...state.draft.newLines];
   for (const line of allLines) {
     const coords = line.stations.map((sid) => {
-      const st = state.network.stations.get(sid as string)!;
+      // Линии черновика ссылаются на станции, которых ещё нет в реестре сети (§9.1).
+      const st = state.network.stations.get(sid as string)
+        ?? state.draft.newStations.find((d) => (d.id as string) === (sid as string));
+      if (!st) return null;
       return toLonLat(st.x, st.y);
-    });
-    features.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: { color: line.color } });
+    }).filter((c): c is [number, number] => c !== null);
+    if (coords.length >= 2) {
+      features.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: { color: line.color } });
+    }
   }
   for (const st of state.network.stations.values()) {
     features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: toLonLat(st.x, st.y) }, properties: { pending: false } });
   }
+  for (const st of state.draft.newStations) {
+    features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: toLonLat(st.x, st.y) }, properties: { pending: true } });
+  }
   for (const sid of pendingStationIds) {
+    if (draftStationIds.has(sid as string)) continue;
     const st = state.network.stations.get(sid as string);
     if (st) features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: toLonLat(st.x, st.y) }, properties: { pending: true } });
   }
@@ -117,8 +155,15 @@ map.on('click', (e) => {
     const sid = id(`UI_S_${++stationCounter}`);
     const st = station(sid as string, x, `Остановка ${stationCounter}`);
     st.y = y;
-    state.network.stations.set(sid as string, st);
-    pendingStationIds.push(sid);
+    if (tool === 'station') {
+      // Инструмент «Станция»: остановка уходит в черновик года (§9.1) —
+      // в сеть и за деньги она попадёт только при «Закрыть год».
+      addStationToDraft(state, st);
+    } else {
+      // Инструмент «Линия»: точки временные, пока линия не собрана из них.
+      state.network.stations.set(sid as string, st);
+      pendingStationIds.push(sid);
+    }
     refreshGeoJson();
     updatePanel();
   }
@@ -143,7 +188,7 @@ function updatePanel(): void {
   $('pax').textContent = state.lastReport ? state.lastReport.metrics.passengersPerDay.toLocaleString('ru-RU') : '—';
   $('sat').textContent = state.lastReport ? `${state.lastReport.metrics.satisfactionPct} %` : '—';
   $('draftInfo').textContent =
-    `Черновик: линий ${state.draft.newLines.length}, точек выбрано ${pendingStationIds.length}, стоимость плана ${fmtMoney(draftCostCents(state))}`;
+    `Черновик: линий ${state.draft.newLines.length}, станций ${state.draft.newStations.length}, точек выбрано ${pendingStationIds.length}, стоимость плана ${fmtMoney(draftCostCents(state))}`;
 }
 
 function log(text: string): void {
@@ -169,9 +214,19 @@ document.querySelectorAll('#modes button').forEach((b) => {
 });
 
 $('undoStation').addEventListener('click', () => {
+  // Отмена «линейной» временной точки.
   const sid = pendingStationIds.pop();
   if (sid) {
     state.network.stations.delete(sid as string);
+    refreshGeoJson();
+    updatePanel();
+    return;
+  }
+  // Отмена последней остановки, добавленной инструментом «Станция» в черновик (§9.1).
+  const last = state.draft.newStations.pop();
+  if (last) {
+    state.network.stations.delete(last.id as string);
+    refreshReserve(state);
     refreshGeoJson();
     updatePanel();
   }
@@ -180,6 +235,11 @@ $('undoStation').addEventListener('click', () => {
 $('closeYear').addEventListener('click', () => {
   if (tool === 'line' && pendingStationIds.length >= 2) {
     const line = makeLine(mode, pendingStationIds, state.network, `Линия ${state.network.lines.length + state.draft.newLines.length + 1}`, '#d43a3a');
+    // Станции «линейных» кликов тоже должны попасть в сеть при закрытии года (§9.1).
+    for (const sid of pendingStationIds) {
+      const st = state.network.stations.get(sid as string);
+      if (st) addStationToDraft(state, st);
+    }
     const err = addLineToDraft(state, line);
     if (err) { log(`❌ ${err}`); return; }
     pendingStationIds = [];
@@ -188,12 +248,13 @@ $('closeYear').addEventListener('click', () => {
     return;
   }
   const report = closeGameYear(state);
+  saveGame(state);
   const linesTxt = report.lineResults
     .map((lr) => `  линия ${lr.lineId}: ${lr.passengersPerDay.toLocaleString('ru-RU')} пасс/день, пик ${lr.peakLoadPct} %, флот ${lr.requiredFleet}`)
     .join('\n');
   const refTxt = [...report.refusals.entries()]
     .filter(([, v]) => v >= 1)
-    .map(([k, v]) => `  ${k}: ${Math.round(v).toLocaleString('ru-RU')}`)
+    .map(([k, v]) => `  ${REFUSAL_LABELS[k] ?? k}: ${Math.round(v).toLocaleString('ru-RU')}`)
     .join('\n');
   log(
     `Год ${report.year} закрыт.\n` +
