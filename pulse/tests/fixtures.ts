@@ -5,8 +5,15 @@
 
 import type { CityPackage, DemandPoint, Network, Pop, SatelliteTown, Station, TransitLine } from '../src/sim/model';
 import { id, sec } from '../src/sim/types';
-import { DEFAULT_TAKTS } from '../src/sim/constants';
+import { DEFAULT_TAKTS, PERIODS } from '../src/sim/constants';
 import type { PeriodName } from '../src/sim/constants';
+
+/** Час-представитель каждой из пяти частей суток (для тестов T1–T3). */
+export const HOUR_OF_PERIOD: Record<PeriodName, number> = {
+  night: 5, amPeak: 8, day: 12, pmPeak: 17, evening: 21,
+};
+
+void PERIODS; // границы периодов зафиксированы в constants.ts (§8.2)
 
 const P = (pid: string, x: number, y: number, residents: number, jobs: number): DemandPoint => ({
   id: id(pid), x, y, residents, jobs, popIds: [],
