@@ -8,7 +8,7 @@
     <style>
       :root { color-scheme: dark; }
       body { margin: 0; font-family: system-ui, sans-serif; background: #10151c; color: #e6edf3; }
-      #app { display: grid; grid-template-columns: 320px 1fr; height: 100vh; }
+      #app { display: grid; grid-template-columns: 340px 1fr; height: 100vh; }
       #panel { padding: 12px; overflow-y: auto; background: #161b22; border-right: 1px solid #30363d; }
       #map { position: relative; }
       #maplibre { position: absolute; inset: 0; }
@@ -22,15 +22,23 @@
       .stat { font-size: 13px; margin: 2px 0; }
       .money { color: #3fb950; }
       .neg { color: #f85149; }
-      #log { font-size: 12px; white-space: pre-wrap; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 8px; max-height: 260px; overflow-y: auto; }
+      #log { font-size: 12px; white-space: pre-wrap; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 8px; max-height: 220px; overflow-y: auto; }
       .hint { font-size: 12px; color: #7d8590; }
+      input[type="text"] { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 6px; padding: 6px; font-size: 13px; flex: 1; min-width: 120px; }
+      select, input[type="number"] { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 6px; padding: 3px 6px; font-size: 13px; }
+      .takt-line { border: 1px solid #30363d; border-radius: 6px; padding: 8px; margin: 6px 0; background: #0d1117; }
+      .takt-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; margin: 3px 0; }
     </style>
-    <script type="module" crossorigin src="/assets/index-BI_YNStO.js"></script>
+    <script type="module" crossorigin src="/assets/index-CLHzWLLf.js"></script>
   </head>
   <body>
     <div id="app">
       <div id="panel">
         <h1>PULSE <span class="hint">MVP</span></h1>
+        <div class="row">
+          <input type="text" id="cityQuery" placeholder="Город (Overture Maps)" value="Berlin" />
+          <button id="loadCity">Загрузить город</button>
+        </div>
         <div class="row" id="tools">
           <button data-tool="select" class="active">Выбор</button>
           <button data-tool="station">Станция</button>
@@ -51,8 +59,10 @@
           <button id="closeYear" class="primary">Закрыть год (§9.1)</button>
           <button id="undoStation">Отменить точку</button>
         </div>
+        <h2>Такты и тариф (§8, §12.2)</h2>
+        <div id="taktEditor"><div class="hint">Линий пока нет.</div></div>
         <h2>Отчёт года</h2>
-        <div id="log">Постройте линию: «Станция» → клики по карте (координаты карты = метры города), затем «Линия» и «Закрыть год».</div>
+        <div id="log">Постройте линию: «Станция» → клики по карте (проекция Web Mercator), затем «Линия» и «Закрыть год». Реальный город — кнопка «Загрузить город».</div>
       </div>
       <div id="map"><div id="maplibre"></div></div>
     </div>

@@ -9,7 +9,7 @@ import { buildCityPackage } from '../src/client/overture';
 import type { RawPlace } from '../src/client/overture';
 import { sanitizeCity } from '../src/sim/city';
 import { newGame, setDraftTakts, setDraftFare, effectiveTakts, draftFare } from '../src/client/game';
-import { makeTestCity } from './fixtures';
+import { makeTestCity, fullCoverageNetwork } from './fixtures';
 
 describe('T5.1 проекция карты (Web Mercator) вместо линейного маппинга', () => {
   const anchor = { lon0: 13.4, lat0: 52.5 };
@@ -77,6 +77,7 @@ describe('T5.2 построение пакета города из мест Over
 describe('T5.3 редактор тактов и тарифа уходит в черновик года (§9.1)', () => {
   it('правка такта не меняет сеть до закрытия года, effectiveTakts показывает черновик', () => {
     const state = newGame(makeTestCity(), false);
+    state.network = fullCoverageNetwork(); // в новой игре сеть пуста — подставляем фикстуру с линиями
     const line = state.network.lines[0]!;
     const before = { ...line.timetable.takts };
     setDraftTakts(state, line.id as string, { amPeak: 4 });
