@@ -61,7 +61,13 @@ export function closeYear(input: CloseYearInput): YearReport & { refusalsReadabl
     return cap ? Math.max(1, ...PERIODS.map((p) => cap.get(p.name) ?? 0)) : 1;
   };
   /** Поток одной поездки через секцию i линии: доля дневного маятника, приходящаяся на пиковый период. */
-  const PEAK_SHARE = Number(process.env.PEAK_SHARE ?? 0.2); // упрощение MVP: 20 % суточного потока в час-пик-окно [Н]
+  const PEAK_SHARE = Number(process.env.PEAK_SHARE ?? 0.06); // упрощение MVP: ~6 % суточного потока в одно пиковое окно (≈1/16 суток) [Н]
+
+  /** Режим линии по её id (для оценки длины маршрута по времени в пути). */
+  const modeOfLineId = (lineId: string): keyof typeof MODES => {
+    const l = network.lines.find((x) => x.id === lineId);
+    return l ? l.mode : 'bus';
+  };
 
   // Перегон по попам: каждый поп едет residence→job один раз в будний день §5.2.
   let totalTripsInCity = 0;
@@ -117,7 +123,7 @@ export function closeYear(input: CloseYearInput): YearReport & { refusalsReadabl
     } else {
       const r = raptor(graph, a.stop, b.stop, hour, a.walkSec, b.walkSec);
       // Тариф §12.2: базовый + за км по фактической длине маршрута (не по прямой).
-      const routeM = r ? r.inVehicleSec * (MODES[net_modeOfLine(network, r.boardings[0]?.lineId ?? '')] ?? MODES.bus).speedsMs[0]! : straightM;
+      const routeM = r ? r.inVehicleSec * (MODES[modeOfLineId(r.boardings[0]?.lineId ?? '')] ?? MODES.bus).speedsMs[0]! : straightM;
       const fc = fareCents(Math.max(straightM, 0) === 0 ? 0 : (r ? routeM : straightM), input.isStandardFare, input.customFareBaseCents, input.customFarePerKmCents);
       decision = decideMode({
         raptor: r, nearestStopDistanceM: a.distanceM, straightDistanceM: straightM,

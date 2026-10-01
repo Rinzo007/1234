@@ -17,7 +17,7 @@ export interface DemandPoint {
   readonly residents: number;
   readonly jobs: number;
   /** Ссылки на попы, привязанные к этой точке (§5.3 инвариант: каждый поп перечислен дважды). */
-  readonly popIds: readonly ImmutableId[];
+  popIds: ImmutableId[]; // заполняется при построении пакета, затем санитайзер проверяет инварианты §5.3
 }
 
 export interface Pop {

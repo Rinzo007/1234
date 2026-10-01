@@ -21,10 +21,15 @@ export const money = (n: number): Money => {
 };
 
 /** Секунды, измеренные по дорожному графу. Отличается от оценки. §5.3 */
-export type MeasuredSecond = Second & { readonly __brand: 'Measured' };
+export type MeasuredSecond = number & { readonly __brand: 'Measured' };
+
+export const measuredSec = (n: number): MeasuredSecond => {
+  if (!Number.isInteger(n)) throw new Error(`MeasuredSecond must be integer, got ${n}`);
+  return n as MeasuredSecond;
+};
 
 /** Секунды, оценённые запасным путём. Попадают в отчёт как оценка. §17.3 */
-export type EstimatedSecond = Second & { readonly __brand: 'Estimated' };
+export type EstimatedSecond = number & { readonly __brand: 'Estimated' };
 
 /** Интервал — только из дискретного множества §8.2. 0 = движение прекращено. */
 export type TaktMinutes =

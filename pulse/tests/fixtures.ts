@@ -4,7 +4,7 @@
  */
 
 import type { CityPackage, DemandPoint, Network, Pop, SatelliteTown, Station, TransitLine } from '../src/sim/model';
-import { id, sec } from '../src/sim/types';
+import { id, measuredSec } from '../src/sim/types';
 import { DEFAULT_TAKTS, PERIODS } from '../src/sim/constants';
 import type { PeriodName } from '../src/sim/constants';
 
@@ -37,7 +37,7 @@ export function makeTestCity(): CityPackage {
       const jobId = id(`J_${j}`);
       pops.push({
         id: pid, size, residenceId: resId, jobId,
-        drivingSeconds: sec(Math.round((8000 + j * 400 - h * 400) * 1.3 / 15.56)), // 56 км/ч
+        drivingSeconds: measuredSec(Math.round((8000 + j * 400 - h * 400) * 1.3 / 15.56)), // 56 км/ч
         drivingDistanceM: 8000 + j * 400 - h * 400,
         income: 60_000,
         dampening: 1,
@@ -50,7 +50,7 @@ export function makeTestCity(): CityPackage {
 
   const towns: SatelliteTown[] = [{
     id: id('TOWN_A'), name: 'Городок А', center: { x: -6000, y: 0 }, population: 20_000,
-    drivingSecondsToCenter: sec(720),
+    drivingSecondsToCenter: measuredSec(720),
   }];
 
   return {
