@@ -10,7 +10,7 @@
  *  - Требования города (§12.6) дают гранты; доли пассажиропотока и спутники — премии (§12).
  */
 
-import type { CityPackage, Network, TransitLine, YearReport } from '../sim/model';
+import type { CityPackage, Network, Station, TransitLine, YearReport } from '../sim/model';
 import { MODES } from '../sim/constants';
 import type { Mode } from '../sim/constants';
 import { id } from '../sim/types';
@@ -30,6 +30,7 @@ export const START_CAPITAL_CENTS = 500_000_000; // 5 млн условных е�
 
 /** Черновик плана года: всё, что игрок накликает, но ещё не применил (§9.1). */
 export interface YearDraft {
+  newStations: Station[];               // остановки, ещё не в реестре сети
   newLines: TransitLine[];              // добавленные линии (ещё не в сети)
   taktChanges: Map<string, Partial<TransitLine['timetable']['takts']>>; // lineId → новые takts
   parkedToggles: Set<string>;           // линия ↔ припарковать/снятие
@@ -52,14 +53,20 @@ export function newGame(city: CityPackage, sandbox = false): GameState {
     network: { stations: new Map(), lines: [] },
     ledger: { capitalCents: START_CAPITAL_CENTS, reservedForPlanCents: 0, sandbox },
     year: 1,
-    draft: { newLines: [], taktChanges: new Map(), parkedToggles: new Set(), fare: { isStandardFare: true } },
+    draft: { newStations: [], newLines: [], taktChanges: new Map(), parkedToggles: new Set(), fare: { isStandardFare: true } },
     lastReport: null,
   };
 }
 
-/** Цена всей добавленной линии: секции × режим × уровень × priceFactor города (§7.1–7.2, §12.10). */
+/** Цена всей добавленной линии: секции × режим × уровень × priceFactor города (§7.1–7.2, §12.10)
+ *  + остановки (stopCostMln за каждую новую станцию черновика, §7). */
 export function draftCostCents(state: GameState): number {
   let cost = 0;
+  for (const st of state.draft.newStations) {
+    if (!state.network.stations.has(st.id as string)) {
+      cost += Math.round(MODES[st.mode].stopCostMln * 1e8 * state.city.priceFactor);
+    }
+  }
   for (const line of state.draft.newLines) {
     for (const section of line.sections) {
       if (section.sharedTrackLineId !== null) continue; // shared-путь не платится (§9.6)
@@ -89,6 +96,14 @@ export function addLineToDraft(state: GameState, line: TransitLine): string | nu
   return null;
 }
 
+/** Добавить остановку в черновик (§9.1: не влияет на сеть и деньги до закрытия года). */
+export function addStationToDraft(state: GameState, st: Station): void {
+  if (state.network.stations.has(st.id as string)) return; // уже в реестре — не дублируем
+  if (state.draft.newStations.some((s) => s.id === st.id)) return;
+  state.draft.newStations.push(st);
+  refreshReserve(state);
+}
+
 export function setDraftTakts(state: GameState, lineId: string, takts: Partial<TransitLine['timetable']['takts']>): void {
   const cur = state.draft.taktChanges.get(lineId) ?? {};
   state.draft.taktChanges.set(lineId, { ...cur, ...takts });
@@ -101,6 +116,12 @@ export function toggleParked(state: GameState, lineId: string): void {
 
 /** Применить черновик к сети (только внутри closeGameYear!). */
 function commitDraft(state: GameState): void {
+  // Сначала — новые остановки в реестр сети (§10.2), затем линии.
+  for (const st of state.draft.newStations) {
+    if (!state.network.stations.has(st.id as string)) {
+      state.network.stations.set(st.id as string, st);
+    }
+  }
   for (const line of state.draft.newLines) {
     for (const sid of line.stations) {
       if (!state.network.stations.has(sid as string)) {
@@ -193,7 +214,7 @@ export function closeGameYear(state: GameState): ClosedYear {
   state.lastReport = finalReport;
 
   // Сброс черновика на следующий год (§9.1). Тариф остаётся, пока игрок его не меняет.
-  state.draft = { newLines: [], taktChanges: new Map(), parkedToggles: new Set(), fare: state.draft.fare };
+  state.draft = { newStations: [], newLines: [], taktChanges: new Map(), parkedToggles: new Set(), fare: state.draft.fare };
   state.ledger.reservedForPlanCents = 0;
   state.year += 1;
   void dailyOpexBalance; // MVP: операционный баланс показываем в отчёте, деньгами не двигаем [Н]
