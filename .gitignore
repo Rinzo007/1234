@@ -1,7 +1,1 @@
-# Dependency directories
-node_modules/
-
-# Build artifacts and caches
-dist/
-build/
-*.tsbuildinfo
+(empty)
