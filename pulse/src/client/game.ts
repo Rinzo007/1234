@@ -12,7 +12,7 @@
 
 import type { CityPackage, Network, Station, TransitLine, YearReport } from '../sim/model';
 import { MODES } from '../sim/constants';
-import type { Mode } from '../sim/constants';
+import type { Mode, PeriodName } from '../sim/constants';
 import { id } from '../sim/types';
 import type { ImmutableId } from '../sim/types';
 import { sanitizeCity } from '../sim/city';
@@ -104,9 +104,29 @@ export function addStationToDraft(state: GameState, st: Station): void {
   refreshReserve(state);
 }
 
+/** Изменение интервалов линии — уходит в черновик года (§9.1), применяется при «Закрыть год» (§8). */
 export function setDraftTakts(state: GameState, lineId: string, takts: Partial<TransitLine['timetable']['takts']>): void {
   const cur = state.draft.taktChanges.get(lineId) ?? {};
   state.draft.taktChanges.set(lineId, { ...cur, ...takts });
+}
+
+/** Эффективные интервалы линии с учётом черновика — для отображения в редакторе тактов (§8.2). */
+export function effectiveTakts(state: GameState, lineId: string): Record<PeriodName, number> | null {
+  const line = state.network.lines.find((l) => l.id === lineId);
+  if (line) return { ...line.timetable.takts, ...(state.draft.taktChanges.get(lineId) ?? {}) };
+  const draftLine = state.draft.newLines.find((l) => l.id === lineId);
+  if (draftLine) return { ...draftLine.timetable.takts, ...(state.draft.taktChanges.get(lineId) ?? {}) };
+  return null;
+}
+
+/** Текущий тариф плана (стандарт §12.2 или свой) — для редактора. */
+export function draftFare(state: GameState): YearDraft['fare'] {
+  return state.draft.fare;
+}
+
+/** Установить тариф: стандартный или свой (базовая поездка + за км, центы) (§12.2). */
+export function setDraftFare(state: GameState, fare: YearDraft['fare']): void {
+  state.draft.fare = fare;
 }
 
 export function toggleParked(state: GameState, lineId: string): void {
