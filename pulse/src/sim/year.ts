@@ -36,7 +36,9 @@ export function closeYear(input: CloseYearInput): YearReport & { refusalsReadabl
 
   // Провозная способность: на каждую секцию каждой линии — вместимость × рейсов/час периода.
   // Заполненность = желаемый поток / способность (§8.3: это НЕ счётчик оставшихся на платформе [T]).
-  const capacityByLinePeriod = new Map<string, Map<PeriodName, number>>(); // lineId → период → чел/сутки через секцию
+  // Считается ПО СЕКЦИЯМ И ПЕРИОДАМ (§9.7): узкое место — самая загруженная секция в пике,
+  // а не «средняя по линии» и не «средняя по суткам».
+  const sectionCapByLinePeriod = new Map<string, Map<PeriodName, number>>(); // lineId → период → чел/секция/период
 
   for (const line of network.lines) {
     if (line.parked || !line.planned) continue;
@@ -46,10 +48,20 @@ export function closeYear(input: CloseYearInput): YearReport & { refusalsReadabl
     const perVehicleCapacity = capacityFor(spec, minPlatform);
     for (const period of PERIODS) {
       const takt = line.timetable.takts[period.name];
-      cap.set(period.name, takt > 0 ? (perVehicleCapacity * (60 / takt)) * (period.to - period.from) : 0);
+      cap.set(period.name, takt > 0 ? perVehicleCapacity * (60 / takt) * (period.to - period.from) : 0);
     }
-    capacityByLinePeriod.set(line.id, cap);
+    sectionCapByLinePeriod.set(line.id, cap);
   }
+  /** Способность секции линии в заданном периоде (чел). */
+  const periodSectionCap = (lineId: string, period: PeriodName): number =>
+    sectionCapByLinePeriod.get(lineId)?.get(period) ?? 0;
+  /** Дневная способность секции = максимум по периодам (для загрузки §12.4 берём пик). */
+  const dailySectionCap = (lineId: string): number => {
+    const cap = sectionCapByLinePeriod.get(lineId);
+    return cap ? Math.max(1, ...PERIODS.map((p) => cap.get(p.name) ?? 0)) : 1;
+  };
+  /** Поток одной поездки через секцию i линии: доля дневного маятника, приходящаяся на пиковый период. */
+  const PEAK_SHARE = Number(process.env.PEAK_SHARE ?? 0.2); // упрощение MVP: 20 % суточного потока в час-пик-окно [Н]
 
   // Перегон по попам: каждый поп едет residence→job один раз в будний день §5.2.
   let totalTripsInCity = 0;
@@ -104,7 +116,9 @@ export function closeYear(input: CloseYearInput): YearReport & { refusalsReadabl
       // farFromStop или noPath определяется внутри decideMode по наличию остановки.
     } else {
       const r = raptor(graph, a.stop, b.stop, hour, a.walkSec, b.walkSec);
-      const fc = fareCents(straightM, input.isStandardFare, input.customFareBaseCents, input.customFarePerKmCents);
+      // Тариф §12.2: базовый + за км по фактической длине маршрута (не по прямой).
+      const routeM = r ? r.inVehicleSec * (MODES[net_modeOfLine(network, r.boardings[0]?.lineId ?? '')] ?? MODES.bus).speedsMs[0]! : straightM;
+      const fc = fareCents(Math.max(straightM, 0) === 0 ? 0 : (r ? routeM : straightM), input.isStandardFare, input.customFareBaseCents, input.customFarePerKmCents);
       decision = decideMode({
         raptor: r, nearestStopDistanceM: a.distanceM, straightDistanceM: straightM,
         drivingSeconds: pop.drivingSeconds, drivingDistanceM: pop.drivingDistanceM,
@@ -149,28 +163,35 @@ export function closeYear(input: CloseYearInput): YearReport & { refusalsReadabl
     }
   }
 
-  // Переполнение: сравнение спроса секций со способностью линий §8.3.
+  // Переполнение: сравнение спроса каждой секции в ПИКОВОМ периоде со способностью
+  // ЭТОЙ секции в том же периоде §8.3, §9.7. Узкое место (худшая секция пика) определяет долю
+  // пассажиров, которые не сядут; они вычитаются из обслуженных [Н].
+  const PEAK_PERIODS: PeriodName[] = ['amPeak', 'pmPeak'];
   let overcrowdShare = 0;
   for (const line of network.lines) {
     if (line.parked || !line.planned) continue;
-    const cap = capacityByLinePeriod.get(line.id);
-    if (!cap) continue;
-    const dailyCap = Math.max(1, ...PERIODS.map((p) => cap.get(p.name) ?? 0));
-    let maxLoad = 0;
-    for (let i = 0; i < line.sections.length; i++) {
-      const d = sectionDemand.get(`${line.id}|${i}`) ?? 0;
-      maxLoad = Math.max(maxLoad, d / dailyCap);
+    let worstExcess = 0;
+    for (const period of PEAK_PERIODS) {
+      const cap = periodSectionCap(line.id as string, period);
+      if (cap <= 0) continue;
+      for (let i = 0; i < line.sections.length; i++) {
+        const d = (sectionDemand.get(`${line.id}|${i}`) ?? 0) * PEAK_SHARE; // в пике — доля суточного потока [Н]
+        worstExcess = Math.max(worstExcess, Math.min(1, d / cap - 1));
+      }
     }
-    if (maxLoad > 1) {
-      const excess = Math.min(1, maxLoad - 1);
+    if (worstExcess > 0) {
       const pax = linePax.get(line.id) ?? 0;
-      overcrowdShare += pax * excess;
+      overcrowdShare += pax * worstExcess;
     }
   }
-  if (overcrowdShare > 0) {
+  if (overcrowdShare >= 0.5) {
     refusals.set('overcrowding', (refusals.get('overcrowding') ?? 0) + overcrowdShare);
     passengersPerDay -= Math.round(overcrowdShare); // переполнение вычитается из обслуженных [Н]
+    tripsNetworkCanServe -= Math.round(overcrowdShare);
     if (passengersPerDay < 0) passengersPerDay = 0;
+    if (tripsNetworkCanServe < 0) tripsNetworkCanServe = 0;
+  } else {
+    overcrowdShare = 0; // доли человека не считаются
   }
 
   // Инвариант Σ_причин ≈ потерянные поездки (§5.3 [P5]): проверяем и фиксируем.
@@ -196,8 +217,7 @@ export function closeYear(input: CloseYearInput): YearReport & { refusalsReadabl
     const fleet = requiredFleet(line);
     const econ = lineDailyEconomics(line, fleet, pax, pkm);
     opexCents += econ.movingCostCents + econ.owningCostCents;
-    const cap = capacityByLinePeriod.get(line.id);
-    const dailyCap = cap ? Math.max(1, ...PERIODS.map((p) => cap.get(p.name) ?? 0)) : 1;
+    const dailyCap = dailySectionCap(line.id as string);
     const sectionLoads = line.sections.map((_s, i) => ((sectionDemand.get(`${line.id}|${i}`) ?? 0) / dailyCap));
     lineResults.push({
       lineId: line.id as never,
