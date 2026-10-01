@@ -59,17 +59,21 @@ describe('T2: RAPTOR по фикстуре полного покрытия', () 
   });
 
   it('якорная минута часа (§8.7): ожидание кратна интервалу и сдвигается якорем', () => {
-    // Ночной takts = 15 мин (DEFAULT_TAKTS[0]), anchor = 0. Готов в :00 → 0 ожидания;
-    // якорь :07 → ближайший рейс через 7 минут; оба значения кратны интервалу.
-    const line = busLine('LA', [0, 1000]);
-    const g = buildGraph(makeNetwork([line], [station('S0', 0), station('S1', 1000)]), 1);
-    const headway = line.timetable.takts.night * 60;
-    const a0 = raptor(g, 0, 1, HOUR_OF_PERIOD.night, 0, 0)!;
-    line.timetable.anchorMinute = 7;
-    const g7 = buildGraph(makeNetwork([line], [station('S0', 0), station('S1', 1000)]), 2);
-    const a7 = raptor(g7, 0, 1, HOUR_OF_PERIOD.night, 0, 0)!;
-    expect(a0.waitSec % headway).toBe(0);
-    expect(a7.waitSec % headway).toBe(0);
+    // Пиковой takt = 10 мин (DEFAULT_TAKTS[1]), час 8:00. Якорь :00 → готов к :00,
+    // садится сразу (wait = 0); якорь :07 → ближайший рейс в 8:07 (wait = 420 с).
+    const mk = (anchor: number) => {
+      const line = busLine('LA', [0, 1000]);
+      line.timetable.anchorMinute = anchor;
+      return buildGraph(makeNetwork([line], [station('S0', 0), station('S1', 1000)]), 1);
+    };
+    const headway = 10 * 60;
+    const a0 = raptor(mk(0), 0, 1, HOUR_OF_PERIOD.amPeak, 0, 0)!;
+    const a7 = raptor(mk(7), 0, 1, HOUR_OF_PERIOD.amPeak, 0, 0)!;
+    // Инвариант §8.7: ближайший рейс кратен интервалу относительно якорной минуты —
+    // (время посадки от начала часа − anchor) % takt == 0.
+    expect((a0.waitSec - 0 * 60) % headway).toBe(0);
+    expect((a7.waitSec - 7 * 60) % headway).toBe(0);
+    expect(a0.waitSec).toBe(0);
     expect(a7.waitSec).toBe(7 * 60);
   });
 
