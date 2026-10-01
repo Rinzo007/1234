@@ -18,13 +18,19 @@ describe('T3: пропускная способность общего пути 
   // Две Ж/Д линии на общем пути S0→S1; лимит пути = trackCapacityPerHour rail = 20 рейсов/ч,
   // минимальный интервал rail = 3 мин (20 рейсов/ч) → путь заполняет одна линия в пике.
   const sharedPair = () => {
+    // Две Ж/Д линии с физически общим путём SA→SB (одинаковые секции).
     const mk = (lineId: string) => {
       const l = busLine(lineId, [0, 1000]);
       l.mode = 'rail';
+      l.stations = ['SA', 'SB'] as never;
+      l.sections = [{
+        fromStationId: 'SA' as never, toStationId: 'SB' as never,
+        lengthM: 1000, serviceKindIndex: 0, levelKey: 'atGrade', sharedTrackLineId: null,
+      }] as never;
       return l;
     };
     return makeNetwork([mk('L1'), mk('L2')], [
-      { ...st('SL1_0', 0), mode: 'rail' }, { ...st('SL1_1', 1000), mode: 'rail' },
+      { ...st('SA', 0), mode: 'rail' }, { ...st('SB', 1000), mode: 'rail' },
     ]);
   };
 
@@ -114,16 +120,30 @@ describe('T3: пешая доступность и типы станций (§22
 });
 
 describe('T3: пересадки через общий узел', () => {
-  it('две линии без общих остановок не дают путь; с общей — дают с одной пересадкой', () => {
-    // Линии L1: 0→1000, L2: 500→1500 — остановки разные, пеших связей нет (радиус 500?
-    // расстояние между S(L1@1000) и S(L2@500)… проверяем вариант с общей остановкой.)
+  it('маршруты без общей остановки не связны; с общей станцией — путь с одной пересадкой', () => {
+    // L1: S0→S1, L2: S1→S2. Общая станция S1 принадлежит обеим линиям (пересадочный узел).
     const l1 = busLine('L1', [0, 1000]);
+    l1.stations = ['S0', 'S1'] as never;
+    l1.sections = [{ fromStationId: 'S0' as never, toStationId: 'S1' as never, lengthM: 1000, serviceKindIndex: 0, levelKey: 'atGrade', sharedTrackLineId: null }] as never;
     const l2 = busLine('L2', [1000, 2000]);
-    const g = makeNetwork([l1, l2], [st('SL1_0', 0), st('SL1_1', 1000), st('SL2_1', 2000)]);
+    l2.stations = ['S1', 'S2'] as never;
+    l2.sections = [{ fromStationId: 'S1' as never, toStationId: 'S2' as never, lengthM: 1000, serviceKindIndex: 0, levelKey: 'atGrade', sharedTrackLineId: null }] as never;
+    const g = makeNetwork([l1, l2], [st('S0', 0), st('S1', 1000), st('S2', 2000)]);
     const graph2 = buildGraph(g, 1);
-    const r = raptor(graph2, 0, 1, 8, 0, 0)!;
+    const r = raptor(graph2, 0, 2, 8, 0, 0)!;
     expect(r).toBeDefined();
     expect(r.transfers).toBe(1);
     expect(r.boardings).toHaveLength(2);
+  });
+
+  it('без общей остановки и в пешем радиусе пути нет (§6.3)', () => {
+    // Две линии с разными станциями на расстоянии 2 км → ни пересадки, ни связи.
+    const l1 = busLine('M1', [0, 1000]);
+    const l2 = busLine('M2', [3000, 4000]);
+    const g = makeNetwork([l1, l2], [
+      st('SM1_0', 0), st('SM1_1', 1000), st('SM2_0', 3000), st('SM2_1', 4000),
+    ]);
+    const graph = buildGraph(g, 1);
+    expect(raptor(graph, 0, 3, 8, 0, 0)).toBeNull();
   });
 });

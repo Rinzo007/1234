@@ -31,6 +31,8 @@ export interface RouteInfo {
   mode: keyof typeof MODES;
   /** Упорядоченные индексы остановок. */
   stopSequence: number[];
+  /** Множество остановок маршрута (для запрета входа на чужие остановки). */
+  stopSet: Set<number>;
   /** Время в пути между соседними остановками, сек. */
   interStopSec: number[];
   /** Длительность периода в минутах по часам суток. */
@@ -60,6 +62,8 @@ export function buildGraph(network: Network, networkVersion: number): TransitGra
     const seq = line.stations.map((s) => pos(s));
     if (line.isLoop && seq.length > 1) seq.push(seq[0]!);
     const spec = MODES[line.mode];
+    // Остановки, принадлежащие этой линии (без дублей цикла) — для пересадок.
+    const ownStops = new Set<number>(seq);
     const interStopSec = line.sections.map((sec) => {
       const speed = spec.speedsMs[Math.min(sec.serviceKindIndex, spec.speedsMs.length - 1)] ?? spec.speedsMs[0]!;
       return Math.max(1, Math.round(sec.lengthM / speed) + 8 /* dwell */);
@@ -69,6 +73,7 @@ export function buildGraph(network: Network, networkVersion: number): TransitGra
       lineId: line.id,
       mode: line.mode,
       stopSequence: seq,
+      stopSet: ownStops,
       interStopSec,
       periodTaktMin: { ...line.timetable.takts },
       anchorMinute: line.timetable.anchorMinute,
@@ -161,10 +166,12 @@ export function raptor(
     for (let r = 0; r < graph.routes.length; r++) {
       const route = graph.routes[r]!;
       const seq = route.stopSequence;
-      // Самая ранняя достижимая остановка на маршруте.
+      // Вход возможен только на остановки, принадлежащие этой линии (§6.2: маршрут обслуживает свои остановки).
       let boardIdx = -1;
       for (let i = 0; i < seq.length; i++) {
-        if (tauPrev[seq[i]!] !== INF) { boardIdx = i; break; }
+        const sIdx = seq[i]!;
+        if (!route.stopSet.has(sIdx)) continue;
+        if (tauPrev[sIdx] !== INF) { boardIdx = i; break; }
       }
       if (boardIdx === -1 || boardIdx >= seq.length - 1) continue;
 

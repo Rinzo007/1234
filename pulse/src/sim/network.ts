@@ -71,12 +71,15 @@ export function checkTaktApplicable(
       (s.fromStationId === secA.toStationId && s.toStationId === secA.fromStationId),
     ),
   );
+  // §9.7: лимит пути диктует самый «слабый» режим из использующих его.
+  // Для проверки перегрузки считаем вклад каждой линии в её собственном режиме.
   const capacity = Math.min(...users.map((u) => MODES[u.mode].trackCapacityPerHour));
   let load = 0;
   for (const u of users) {
     const isSelf = u.id === line.id;
+    const ownCap = MODES[u.mode].trackCapacityPerHour;
     const takt = isSelf ? proposedTaktMin : trackLoadPerHour(u, 0) > 0 ? harmonicTakt(u) : 0;
-    if (takt > 0) load += 60 / takt;
+    if (takt > 0) load += Math.min(60 / takt, ownCap);
   }
   if (load > capacity) {
     return { allowed: false, reason: 'Общий путь заполнен. Пусть другая линия ходит реже' };
