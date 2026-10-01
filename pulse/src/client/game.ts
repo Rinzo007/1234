@@ -46,11 +46,13 @@ export interface GameState {
   lastReport: YearReport | null;
 }
 
-export function newGame(city: CityPackage, sandbox = false): GameState {
+/** Начальная сеть: по умолчанию пуста (§9.1 — игрок строит с нуля);
+ *  для тестов/песочницы можно передать готовую сеть. */
+export function newGame(city: CityPackage, sandbox = false, initialNetwork?: Network): GameState {
   sanitizeCity(city); // инварианты §5.3 — пакет обязан пройти санитайзер до старта
   return {
     city,
-    network: { stations: new Map(), lines: [] },
+    network: initialNetwork ?? { stations: new Map(), lines: [] },
     ledger: { capitalCents: START_CAPITAL_CENTS, reservedForPlanCents: 0, sandbox },
     year: 1,
     draft: { newStations: [], newLines: [], taktChanges: new Map(), parkedToggles: new Set(), fare: { isStandardFare: true } },

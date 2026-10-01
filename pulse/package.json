@@ -12,6 +12,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@duckdb/node-api": "^1.5.6-r.1",
+    "@turf/bbox-polygon": "^7.4.0",
+    "@turf/boolean-intersects": "^7.4.0",
     "maplibre-gl": "^4.7.1"
   },
   "devDependencies": {
