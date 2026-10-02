@@ -1,0 +1,39 @@
+# Кэш данных: восстанавливается повторной загрузкой, не является исходным кодом
+wikiroutes_cache/
+.wikiroutes_dedup_cache/
+*.parquet
+
+# Растры GHSL: это данные, а не код. 6 ГБ — в репозитории им не место.
+# Скачиваются отдельно; пути задаются через WIKIROUTES_GHS_POP
+# и WIKIROUTES_GHS_BUILT.
+GHS/
+*.tif
+*.tiff
+
+# Выгрузки городов: результат работы CLI, воспроизводится одной командой.
+# Для Воронежа это 807 файлов на 52 МБ, и смысла хранить их в репозитории
+# нет: команда ниже воспроизводит любой из них.
+*_routes.xlsx
+*_routes.kml
+*_routes_boundary.geojson
+*_routes_terminals.geojson
+*_routes_heatmap.kml
+
+# Кэши инструментов
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Виртуальные окружения
+.venv/
+venv/
+env/
+
+# Редакторы и ОС
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
